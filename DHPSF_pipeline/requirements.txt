@@ -1,0 +1,14 @@
+# DH-PSF bead tracking (pipeline, motion analysis and explorer): the exact versions it is tested with.
+# Create the environment (Python 3.11):
+#   conda create -n dhpsf-tracking-2026 python=3.11 pip
+#   conda activate dhpsf-tracking-2026
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+# PyTorch is the CPU build: nothing in the code uses a GPU (the Kalman filters and fits are fast on CPU).
+# Optional: MATLAB, only to also write native MATLAB tables (*_localizations.mat via export_tables.m).
+numpy==1.26.4
+scipy==1.17.1
+tifffile==2026.3.3
+networkx==3.6.1
+matplotlib==3.11.2
+pillow==12.3.0
+torch==2.14.0+cpu

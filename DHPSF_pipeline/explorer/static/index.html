@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DH-Tracker-2026</title>
+<link rel="stylesheet" href="style.css">
+<script src="vendor/plotly.min.js" defer></script>
+</head>
+<body>
+<header id="topbar">
+  <button id="btnDrawer" class="icon" title="Controls: display, filters, selection, displacement, coordinates, tracking, export">☰</button>
+  <span class="brand">DH-Tracker-2026</span>
+  <select id="runSel" title="Result set (analysis run)"></select>
+  <select id="movieSel" title="Movie"></select>
+  <button id="btnNewAnalysis" title="Analyse new data: a calibration z-stack plus one or more movies">New analysis</button>
+  <span id="jobBadge" class="badge job hidden" title="Analysis in progress; click to show"></span>
+  <div class="transport">
+    <button id="btnPrev" class="icon" title="Previous frame">‹</button>
+    <button id="btnPlay" class="icon play" title="Play / pause">▶</button>
+    <button id="btnNext" class="icon" title="Next frame">›</button>
+  </div>
+  <input id="frameSlider" type="range" min="1" max="1" value="1" title="Frame">
+  <span id="frameLabel" class="mono" title="Current frame / total">1 / 1</span>
+  <div class="sep"></div>
+  <label class="chip" title="Markers for every bead in this frame: on the movie the centre circle, two lobes and joining line; in the 3D view a sphere at each track's current position"><input type="checkbox" id="ovBeads" checked><span>Markers</span></label>
+  <label class="chip" title="Each bead's path over the last N frames, drawn as a trail behind it, so you can see where it moved from (N in Controls › Display)"><input type="checkbox" id="ovTails" checked><span>Trails</span></label>
+  <select id="ovColor" title="Colour overlays by">
+    <option value="z">colour: z</option><option value="track">colour: track</option><option value="frame">colour: frame</option><option value="white">colour: white</option><option value="motion" id="ovColorMotion" hidden>colour: moving</option><option value="stage" id="ovColorStage" hidden>colour: stage</option>
+  </select>
+  <span id="badges"></span>
+  <span class="spacer"></span>
+  <button id="updBadge" class="chip upd hidden" title="A newer version is on GitHub: click for how to update">⬆ update available</button>
+  <button id="btnPanel" class="icon" title="Show / hide the side panel">▤</button>
+  <button id="btnHelp" class="icon" title="Help">?</button>
+</header>
+
+<main id="layout">
+  <section id="stage">
+    <div id="movieWrap">
+      <canvas id="movieCanvas" tabindex="0"></canvas>
+      <div id="toolbar">
+        <button data-tool="pan" class="tool active" title="Pan / click a bead to select its track">✋</button>
+        <button data-tool="rect" class="tool" title="Rectangle ROI: drag to select the tracks inside (replaces the selection); hold Shift to add, Alt to remove">▭</button>
+        <button data-tool="lasso" class="tool" title="Freehand lasso ROI: selects the tracks inside (replaces the selection); hold Shift to add, Alt to remove">➰</button>
+        <button data-tool="poly" class="tool" title="Polygon ROI: click vertices, double-click or Enter to close; selects the tracks inside (replaces the selection); hold Shift to add, Alt to remove">⬠</button>
+        <div class="tsep"></div>
+        <button id="btnFit" title="Fit image to view">⤢</button>
+      </div>
+      <div id="topPills">
+        <div id="selPill" class="hidden"><span id="selCount"></span><button id="btnStar" title="Star the selected track(s): starred tracks stay in the bar below for quick selection">☆</button><button id="btnClearSel" title="Clear the selection and all ROIs">✕</button></div>
+        <div id="starBar" class="hidden"></div>
+      </div>
+      <div id="tooltip"></div>
+      <div id="busy" class="hidden"><span id="busyText">working…</span><div class="pbar indet"><div id="busyBar"></div></div></div>
+      <div id="emptyState" class="hidden">
+        <h2>No analyses yet</h2>
+        <p>Analyse a calibration z-scan and one or more movies (TIFF files anywhere on this computer).
+          The results appear here when the analysis is done.</p>
+        <button id="emptyNew" class="primary">New analysis</button>
+      </div>
+    </div>
+    <div id="statusbar"><span id="cursorInfo" class="mono"></span><span class="spacer"></span><span id="dataInfo" class="dim"></span></div>
+
+    <aside id="drawer" class="closed" aria-hidden="true">
+      <div class="drawer-head"><b>Controls</b><button id="btnDrawerClose" class="icon" title="Close">✕</button></div>
+      <div class="drawer-body">
+        <details open data-sec="display">
+          <summary>Display</summary>
+          <div class="grid2">
+            <label title="Display minimum (camera counts)">min <input id="vmin" type="number" step="1"></label>
+            <label title="Display maximum (camera counts)">max <input id="vmax" type="number" step="1"></label>
+            <label class="span2" title="Gamma: &lt;1 brightens faint signal">γ <input id="gamma" type="range" min="0.2" max="2.5" step="0.05" value="1"><span id="gammaVal" class="mono">1.00</span></label>
+            <button id="btnAuto" class="span2" title="Reset contrast to the 1st / 99.9th percentile of the middle frame">auto contrast</button>
+          </div>
+          <div class="rowl">
+            <label title="Lobe markers and the segment joining them (hidden when zoomed far out)"><input type="checkbox" id="ovLobes" checked> lobes</label>
+            <label title="Colour bars and legends on the movie"><input type="checkbox" id="ovLegend" checked> legend</label>
+            <label title="Draw localizations recovered by track-guided refitting dashed"><input type="checkbox" id="ovRecDash" checked> recovered dashed</label>
+            <label title="Show only selected tracks on the movie"><input type="checkbox" id="ovOnlySel"> only selected</label>
+            <label title="Fade unselected tracks when something is selected"><input type="checkbox" id="ovDim" checked> dim unselected</label>
+          </div>
+          <div class="grid2">
+            <label title="Tail length in frames">tail N <input id="ovTailN" type="number" min="1" max="200" value="10"></label>
+            <label title="Playback speed (frames per second)">fps <input id="fps" type="number" min="1" max="60" value="10"></label>
+            <label title="Loop playback"><input id="loop" type="checkbox" checked> loop</label>
+            <label title="Automatic z colour range (1st–99th percentile)"><input type="checkbox" id="ovZcAuto" checked> auto z range</label>
+            <label title="z colour minimum (µm)">z min <input id="ovZcMin" type="number" step="0.5" value="-5" disabled></label>
+            <label title="z colour maximum (µm)">z max <input id="ovZcMax" type="number" step="0.5" value="5" disabled></label>
+            <label class="span2" title="Use 2×2 / 4×4 binned frames when zoomed out (faster)"><input type="checkbox" id="autoRes" checked> auto resolution</label>
+            <button id="btnPreload" class="span2" title="Fetch every frame at the current resolution">preload all frames</button>
+          </div>
+          <div id="cacheInfo" class="hint mono"></div>
+        </details>
+
+        <details data-sec="selection">
+          <summary>Selection</summary>
+          <div class="grid2">
+            <label class="span2" title="Which localizations count when an ROI selects tracks">ROI selects
+              <select id="roiMode"><option value="any">tracks with any loc. inside</option><option value="current">tracks inside at current frame</option></select></label>
+            <button id="btnInvert" title="Invert the selection among filtered tracks">invert</button>
+            <button id="btnClearRoi" title="Remove all drawn ROIs">clear ROIs</button>
+          </div>
+        </details>
+
+        <details data-sec="filters">
+          <summary>Filters <span id="filterBadge" class="badge hidden"></span></summary>
+          <div class="grid2">
+            <label title="Minimum number of localizations per track">min length <input id="fMinLen" type="number" min="1" value="1"></label>
+            <label title="Only localizations with a valid z (zStatus = 0)"><input type="checkbox" id="fValid"> valid z only</label>
+            <label title="Minimum z (µm)">z ≥ <input id="fZMin" type="number" step="0.5" placeholder="—"></label>
+            <label title="Maximum z (µm)">z ≤ <input id="fZMax" type="number" step="0.5" placeholder="—"></label>
+            <label title="First frame">from <input id="fFStart" type="number" min="1" value="1"></label>
+            <label title="Last frame">to <input id="fFEnd" type="number" min="1" value="1"></label>
+            <label id="fRecWrap" class="span2" title="Localizations recovered by track-guided refitting">recovered
+              <select id="fRec"><option value="all">show</option><option value="hide">hide</option><option value="only">only</option></select></label>
+            <label id="fMotionWrap" class="span2 hidden" title="Keep only tracks of one motion type (whole-track test) or tracks that move at some point">motion
+              <select id="fMotion"><option value="all">all tracks</option><option value="moving">moving at some point</option><option value="directed">directed</option><option value="confined">confined</option><option value="brownian">Brownian</option></select></label>
+            <label id="fBrightWrap" class="span2" title="Hide tracks dimmer than this % of the tracks around them (median weaker-lobe amplitude, neighbours within 150 px). Side-lobe ghosts and noise fits are typically below 30–40 %.">min brightness
+              <input id="fBright" type="range" min="0" max="100" step="5" value="0"> <span id="fBrightVal" class="mono">off</span></label>
+          </div>
+          <div class="rowl"><span id="filterInfo" class="hint mono"></span><span class="spacer"></span><button id="btnResetFilters">reset</button></div>
+        </details>
+
+        <details data-sec="disp">
+          <summary>Displacement field</summary>
+          <div class="grid2">
+            <label title="Arrows from each track's position at frame A to frame B"><input type="checkbox" id="dOn"> arrows</label>
+            <label title="Arrow length multiplier">scale × <input id="dScale" type="number" min="0.1" step="0.5" value="5"></label>
+            <label title="Reference frame">A <input id="dA" type="number" min="1" value="1"></label>
+            <label title="Target frame">B <input id="dB" type="number" min="1" value="1"></label>
+            <button id="dSetA" title="Set A to the current frame">A = current</button>
+            <button id="dSetB" title="Set B to the current frame">B = current</button>
+            <label title="B follows the movie frame"><input type="checkbox" id="dFollow"> B follows movie</label>
+            <label title="Only selected tracks"><input type="checkbox" id="dOnlySel"> selected only</label>
+            <label title="Colour discs by Δz (B − A)"><input type="checkbox" id="dZmap"> Δz map</label>
+            <label title="Where to draw the Δz discs">at <select id="dZmapAt"><option value="b">B</option><option value="a">A</option></select></label>
+          </div>
+          <div id="dispInfo" class="hint mono"></div>
+        </details>
+
+        <details data-sec="coords">
+          <summary>Coordinates &amp; extra layers</summary>
+          <div class="grid2">
+            <label class="span2" title="Remove the calibrated sideways shift of the bead midpoint with depth (xCorrected/yCorrected)"><input type="checkbox" id="cCorr"> lateral correction</label>
+            <label title="Remove whole-field XY shake (median bead motion per frame); the movie frames are shifted too"><input type="checkbox" id="cXY"> XY stabilized</label>
+            <label title="Remove whole-field z drift (median bead z change, smoothed over time)"><input type="checkbox" id="cZ"> Z stabilized</label>
+            <label class="span2" id="cRefWrap" title="Positions refined by the motion analysis: a Kalman smoother runs over each whole track with its own motion model (Brownian, confined or directed), which averages out localization noise, mostly in z. Model-based: an abrupt real jump is spread over a few frames. The movie overlay stays on the raw positions."><input type="checkbox" id="cRef"> refined positions (motion analysis)</label>
+            <label id="ovRejWrap" class="span2" title="Transient / likely-noise tracks from {movie}_rejected.csv"><input type="checkbox" id="ovRej"> rejected tracks (grey)</label>
+          </div>
+          <div id="coordInfo" class="hint"></div>
+        </details>
+
+        <details data-sec="motion">
+          <summary>Motion analysis <span id="motionBadge" class="badge hidden"></span></summary>
+          <div id="motionInfo" class="hint"></div>
+          <div class="grid2">
+            <label title="Time between frames. Gives D in µm²/s and speeds in µm/s; empty: per-frame units">frame interval (ms) <input id="motionDt" type="number" min="0" step="0.1" placeholder="per frame"></label>
+            <label class="span2" title="Over time: a two-state moving/still model, or ordered stages for an experiment with a known sequence (still → indent → hold → retract → still; each bead can skip stages, e.g. never retract; from any stage a bead can also move for another reason, e.g. pushed by a cell: “other moving”)">model over time
+              <select id="motionStages"><option value="">moving / still</option><option value="indentation">indentation stages</option></select></label>
+            <button id="motionRun" title="Classify every track, find when each bead moves and refine positions (about 10–40 seconds)">run motion analysis</button>
+          </div>
+          <div class="hint">Whole tracks are classified as Brownian, confined or directed by a likelihood-ratio test (as in aTrack), and every frame gets a probability of moving from a two-state model with transitions (as in ExaTrack). Colour by “moving” to see it.</div>
+        </details>
+
+        <details data-sec="tracking">
+          <summary>Tracking <span id="trackBadge" class="badge hidden">re-tracked</span></summary>
+          <div class="grid2">
+            <label class="span2" title="lap: two-stage LAP with gap closing · kalman: constant-velocity Kalman + LAP, coasts through gaps · nearest: greedy baseline (slow on large data)">method
+              <select id="tkMethod"><option value="lap">LAP (two-stage, gap closing)</option><option value="kalman">Kalman + LAP</option><option value="nearest">nearest neighbour</option></select></label>
+            <label title="Max frame-to-frame link distance (px)">link px <input id="tk_link_distance_px" type="number" step="0.5" min="0"></label>
+            <label title="Max gap-closing distance (px)">gap px <input id="tk_gap_distance_px" type="number" step="0.5" min="0"></label>
+            <label title="Max frame difference for gap closing / coasting">max gap <input id="tk_max_frame_gap" type="number" step="1" min="1"></label>
+            <label title="Rotation (degrees) that costs as much as 1 px of motion">angle ° <input id="tk_angle_cost_deg" type="number" step="1" min="0.1"></label>
+            <label class="kal" title="Kalman acceleration SD (px/frame²)">process σ <input id="tk_kalman_process_noise" type="number" step="0.1" min="0"></label>
+            <label class="kal" title="Kalman localization SD (px)">meas. σ <input id="tk_kalman_measurement_noise" type="number" step="0.1" min="0"></label>
+            <label class="kal" title="Kalman prior velocity SD for new tracks (px/frame)">init v σ <input id="tk_kalman_initial_velocity" type="number" step="0.5" min="0"></label>
+            <label title="Tracks shorter than this are set aside (drawn grey)">min length <input id="tk_min_track_length" type="number" step="1" min="1"></label>
+            <button id="tkRun" class="primary" title="Re-link all localizations with these settings">re-link</button>
+            <button id="tkReset" title="Go back to the pipeline's track numbers">reset to pipeline</button>
+            <label class="span2" title="Draw localizations of too-short tracks as faint grey circles"><input type="checkbox" id="ovShort" checked> show short tracks (grey)</label>
+          </div>
+          <div id="tkInfo" class="hint"></div>
+        </details>
+
+        <details data-sec="export">
+          <summary>Export</summary>
+          <div class="grid2">
+            <button id="exAll" title="Every localization of every track, ignoring filters and selection → CSV + MAT in <results>/exports (CSV also downloads)">all → CSV/MAT</button>
+            <button id="exFilt" title="The tracks that pass the current filters → CSV + MAT">filtered → CSV/MAT</button>
+            <button id="exSel" title="Selected tracks → CSV + MAT">selected → CSV/MAT</button>
+            <button id="exStar" title="Starred tracks → CSV + MAT">starred → CSV/MAT</button>
+            <label class="span2" title="Apply the point filters (z, frames, recovered…) to exported rows; otherwise export whole tracks"><input type="checkbox" id="exApply" checked> apply point filters</label>
+            <button id="exRoi" title="Download the drawn ROIs as JSON (also saved to exports/)">ROIs → JSON</button>
+            <button id="ex3d" title="Save the 3D view as PNG">3D view → PNG</button>
+            <button id="exOpenFolder" class="span2" title="Open this run's exports folder (where every export is saved) in File Explorer">📂 Open export folder</button>
+          </div>
+          <div id="exInfo" class="hint mono"></div>
+        </details>
+
+        <details data-sec="folders">
+          <summary>Folders</summary>
+          <div class="folders">
+            <div class="k">Movies</div><div id="setData" class="v mono" title="The file picker of New analysis opens here">—</div>
+            <button data-choose="data" title="Choose the folder that holds your movies (a folder dialog opens on this computer)">Change…</button>
+            <div class="k">Results</div><div id="setResults" class="v mono" title="New analyses are saved here">—</div>
+            <button data-choose="results" title="Choose where new analyses are saved (a folder dialog opens on this computer)">Change…</button>
+          </div>
+          <div id="setInfo" class="hint">Remembered between sessions and across program updates.</div>
+        </details>
+
+        <details data-sec="help" open>
+          <summary>Help</summary>
+          <div class="grid2">
+            <button class="span2" data-open="https://www.weisslab.ca" title="The Weiss Lab website (opens in a new tab)">Weiss Lab · www.WeissLab.ca</button>
+            <button class="span2" data-open="/readme" title="The program's README: setup, running an analysis, outputs and methods (opens in a new tab; also F1)">Open README (F1)</button>
+            <button data-open="/readme/explorer" title="The explorer's README: every view, control and export (opens in a new tab)">Explorer README</button>
+            <button data-open="/guide.mp4" title="3-minute captioned video of a whole session: new analysis, results, exports (opens in a new tab)">Video guide</button>
+          </div>
+          <div id="verInfo" class="hint"></div>
+        </details>
+      </div>
+    </aside>
+  </section>
+
+  <div id="splitter" role="separator" aria-orientation="vertical" title="Drag to resize the movie and side panel · double-click to reset"></div>
+  <section id="panel">
+    <nav class="tabs">
+      <button data-tab="3d" class="tab active" title="3D tracks">3D</button>
+      <button data-tab="tracks" class="tab" title="Track table and per-track plots">Tracks</button>
+      <button data-tab="deform" class="tab" title="Deformation map: bead displacements from a reference frame, interpolated through the volume">Deformation</button>
+    </nav>
+    <div id="pane3d" class="pane">
+      <div class="pane-tools">
+        <select id="v3Color" title="Colour 3D tracks by"><option value="frame">frame (parula)</option><option value="track">track</option><option value="z">z</option><option value="motion" id="v3ColorMotion" hidden>moving</option><option value="stage" id="v3ColorStage" hidden>stage</option></select>
+        <select id="v3Units" title="XY units"><option value="px">px</option><option value="um">µm</option></select>
+        <details class="more"><summary title="More 3D options">⋯</summary>
+          <div class="menu">
+            <label title="Image orientation (y increases downward)"><input type="checkbox" id="v3YDown"> y down</label>
+            <label title="Only selected tracks"><input type="checkbox" id="v3OnlySel"> only selected</label>
+            <label title="Fade unselected tracks when something is selected"><input type="checkbox" id="v3Dim" checked> dim unselected</label>
+          </div>
+        </details>
+      </div>
+      <div id="plot3d" class="plot"></div>
+    </div>
+    <div id="paneTracks" class="pane hidden">
+      <div class="tbl-top"><b>Tracks</b> <span id="tableCount" class="dim"></span></div>
+      <div id="tbl" title="Click: select · Ctrl-click: toggle · Shift-click: range · Double-click: go to track">
+        <div id="tblHead" class="thead"></div>
+        <div id="tblScroll"><div id="tblSpacer"></div><div id="tblBody"></div></div>
+      </div>
+      <div id="trackPlots" class="empty">
+        <div class="empty-msg dim">Select tracks (click a bead, draw an ROI, or click table rows) to plot them.</div>
+        <div id="plotZ" class="plot"></div>
+        <div id="plotXY" class="plot"></div>
+        <div id="plotD" class="plot"></div>
+        <div id="plotMotion" class="plot" style="display:none"></div>
+        <div id="plotDrift" class="plot" style="display:none"></div>
+      </div>
+    </div>
+    <div id="paneDeform" class="pane hidden">
+      <div class="pane-tools">
+        <select id="dfShow" title="How to draw the deformation: the median plane warped in 3D, or the same plane seen from above as a map"><option value="sheet">warped plane</option><option value="map">map (top view)</option></select>
+        <select id="dfQty" title="What to colour by. z is height (up = toward the indenter, which comes from above), so an indentation is negative Δz."><option value="uz">Δz</option><option value="mag">|u| total</option><option value="lat">|u| lateral</option><option value="ux">Δx</option><option value="uy">Δy</option>
+          <optgroup label="strain (in-plane)"><option value="areal">areal strain</option><option value="shear">shear</option><option value="tilt">surface tilt</option></optgroup></select>
+        <label id="dfDepthWrap" title="The beads' median plane in the middle; slide right for a plane deeper in the sample, left for one higher up">depth <input id="dfDepth" type="range" min="0" max="100" value="50"></label>
+        <label id="dfWarpWrap" title="Displacements drawn this many times larger (1 = true size; z is also stretched by the axis aspect, see the info line)">warp × <input id="dfWarp" type="number" min="0.1" step="1" value="1" style="width:4em"></label>
+        <label title="Reference (undeformed) frame; the field shows the displacement from it to the current movie frame. Shared with Controls › Displacement field (A).">ref <input id="dfRef" type="number" min="1" value="1" style="width:4.5em"></label>
+        <button id="dfRefCur" title="Use the current frame as the reference">ref = current</button>
+        <button id="dfRefresh" title="Refresh: fit and draw the deformation again from scratch (and reload the movie's data if none is loaded)">↻</button>
+        <details class="more"><summary title="More deformation options">⋯</summary>
+          <div class="menu">
+            <label title="Best: lateral-corrected, whole-field drift removed (XY and Z) and refined by the motion analysis, whatever is chosen under Coordinates -- otherwise drift counts as deformation. As displayed: the Coordinates setting.">positions <select id="dfPos"><option value="best">best (drift removed, refined)</option><option value="display">as displayed</option></select></label>
+            <label title="Dots: each bead where it is now (moved by the same warp as the plane)"><input type="checkbox" id="dfBeads" checked> beads</label>
+            <label title="Arrows: each bead's measured displacement from its reference position"><input type="checkbox" id="dfArrows"> bead arrows</label>
+            <div id="dfArrowRow" class="df-auto-row"><label title="Arrow length multiplier; type a value, or auto">arrows × <input id="dfArrowScale" type="number" min="0" step="1" placeholder="auto" style="width:6.5em"></label>
+              <button id="dfArrowAuto" class="auto-btn" title="Automatic arrow length (the typical large displacement drawn as 6% of the field width)">auto</button></div>
+            <div class="df-auto-row"><label title="Smoothing length of the interpolation in µm; type a value, or auto">smoothing µm <input id="dfEll" type="number" min="0" step="5" placeholder="auto" style="width:6.5em"></label>
+              <button id="dfEllAuto" class="auto-btn" title="Automatic smoothing: fitted to the data by maximum likelihood">auto</button></div>
+            <hr>
+            <button id="dfExField" title="The warped plane (current depth) at every frame of the frame range (Filters): grid positions, ux/uy/uz, areal strain, shear, tilt → CSV + MAT, and a VTK file per frame for ParaView (opens as an animation). Saved in results/exports.">field → CSV / MAT / VTK</button>
+            <button id="dfExMp4" title="Record the current view (camera, colouring, warp) over the frame range (Filters) at 10 frames/s → MP4 (WebM if the browser cannot make MP4). Saved in results/exports.">animation → MP4</button>
+            <button id="dfExGif" title="The same animation as a GIF (800 px wide), e.g. for slides">animation → GIF</button>
+            <button class="exOpenFolder" title="Open this run's exports folder in File Explorer">📂 open export folder</button>
+            <div id="dfExInfo" class="hint mono"></div>
+          </div>
+        </details>
+      </div>
+      <div id="dfInfo" class="hint df-info"></div>
+      <div id="plotDeform" class="plot"></div>
+    </div>
+  </section>
+</main>
+
+<div id="help" class="modal hidden">
+  <div class="modal-body">
+    <h3>DH-Tracker-2026</h3>
+    <ul class="help-list">
+      <li><a href="https://www.weisslab.ca" target="_blank" rel="noopener">www.WeissLab.ca</a></li>
+      <li><b>Movie:</b> scroll to zoom, drag to pan, click a bead to select its track.</li>
+      <li><b>ROIs:</b> draw one to select the tracks inside. Hold Shift to add, Alt to remove.</li>
+      <li><b>☆</b> in the selection pill stars tracks so they stay handy.</li>
+      <li><b>3D / plots:</b> click a track to select it; double-click an axis to set its range.</li>
+      <li><b>☰</b> opens the controls: display, filters, coordinates, tracking, export.</li>
+      <li><b>New analysis</b> analyses a calibration z-stack and one or more movies.</li>
+      <li><b>F1</b> (or ☰ › Help) opens the README. Also: <a href="/readme/explorer" target="_blank">explorer README</a> · <a href="/guide.mp4" target="_blank">video guide</a>.</li>
+    </ul>
+    <button id="helpClose">close</button>
+  </div>
+</div>
+
+<div id="anModal" class="modal hidden">
+  <div class="modal-body an">
+    <div class="an-head"><h3>New analysis</h3><button id="anClose" class="icon" title="Close (the analysis keeps running)">✕</button></div>
+    <div id="anForm">
+      <section class="an-step" id="anStep1">
+        <div class="an-step-h"><span class="an-num">1</span><span class="an-step-t">Calibration</span><span id="anState1" class="an-state"></span></div>
+        <div class="an-step-sub">A bead z-stack taken with the same objective and phase mask as the movies.</div>
+        <div id="anRecent" class="an-recent hidden"></div>
+        <div class="an-path"><input id="anCal" type="text" spellcheck="false" placeholder="path to the bead calibration .tif"><button id="anCalBrowse">Browse…</button></div>
+        <div id="anCalInfo" class="hint"></div>
+        <div id="anCalCheck" class="hint hidden"></div>
+        <div class="an-grid">
+          <label title="The objective used for the calibration and the movies; it sets the µm per pixel">Magnification
+            <select id="anObj"><option value="">— choose —</option><option value="20x">20× · 0.325 µm/px</option><option value="10x">10× · 0.63 µm/px</option><option value="custom">custom</option></select></label>
+          <label id="anPxWrap" class="hidden" title="Pixel size in the sample (µm per camera pixel)">µm / px <input id="anPx" type="number" step="0.001" min="0.01"></label>
+        </div>
+        <div id="anObjNote" class="hint"></div>
+        <details id="anCalMore" class="an-more">
+          <summary>Planes and z step <span id="anSpan" class="dim an-note"></span></summary>
+          <div id="anRangeEmpty" class="hint">Choose the calibration stack first.</div>
+          <div id="anRange" class="hidden">
+            <div class="an-dual" title="Planes of the calibration stack to fit; planes outside are skipped">
+              <div class="an-dual-track"><div id="anDualFill"></div></div>
+              <input id="anPlaneA" type="range" min="1" max="1" value="1" aria-label="first plane">
+              <input id="anPlaneB" type="range" min="1" max="1" value="1" aria-label="last plane">
+            </div>
+            <div class="an-thumbs">
+              <figure><img id="anThumbA" alt=""><figcaption>first <input id="anFirst" type="number" min="1" step="1"></figcaption></figure>
+              <figure><img id="anThumbB" alt=""><figcaption>last <input id="anLast" type="number" min="1" step="1"></figcaption></figure>
+            </div>
+          </div>
+          <div class="an-grid">
+            <label title="Distance between consecutive planes of the calibration stack (stage speed × frame interval). Filled in from the stage speed in the file name × the frame interval when possible; otherwise it must be entered">z step (µm) <input id="anZStep" type="number" step="0.1" min="0.01" placeholder="required"></label>
+            <label title="Report z only within ± this distance (µm). Empty = the engine's default (±75 µm for 10×, full range otherwise)">limit z to ± (µm) <input id="anZRange" type="number" step="0.5" min="0.1" placeholder="auto"></label>
+          </div>
+          <div id="anZNote" class="hint"></div>
+          <div class="hint">Keep the planes where beads show two clear spots that rotate from plane to plane.</div>
+        </details>
+      </section>
+
+      <section class="an-step" id="anStep2">
+        <div class="an-step-h"><span class="an-num">2</span><span class="an-step-t">Movies</span><span id="anState2" class="an-state"></span></div>
+        <div class="an-step-sub">One or more movies, all analysed with this calibration. Each is checked for brightness when added.</div>
+        <ul id="anMovies" class="an-list"></ul>
+        <div id="anSiblings" class="hidden"><button id="anAddSiblings" class="linkish"></button></div>
+        <div class="an-grid">
+          <label title="Time between movie frames. Used for the motion analysis (D in µm²/s, speeds in µm/s); empty: per-frame units">frame interval (ms, optional) <input id="anFrameDt" type="number" min="0" step="0.1" placeholder="per frame"></label>
+        </div>
+        <div class="an-path"><input id="anMovieIn" type="text" spellcheck="false" placeholder="path to a movie .tif (Enter adds; several paths can be pasted)"><button id="anMovieBrowse">Browse…</button></div>
+        <details id="anThrSec" class="an-more">
+          <summary>Bead detection <span id="anThrSummary" class="dim an-note">auto</span></summary>
+          <div id="anThrEmpty" class="hint">Add a movie first.</div>
+          <div id="anThr" class="hidden">
+            <div class="an-thr-row">
+              <select id="anThrMovie" class="hidden" title="Example movie"></select>
+              <label class="an-inline" title="Example frame (bead detection runs when you release the slider)">frame <input id="anThrFrame" type="range" min="1" max="1" value="1"></label>
+              <span id="anThrFrameLbl" class="mono dim"></span>
+            </div>
+            <div id="anThrView" class="an-thr-view" title="Wheel: zoom · drag: pan · double-click: fit">
+              <canvas id="anThrCanvas"></canvas>
+              <div id="anThrBusy" class="an-thr-busy hidden"><div class="spinner"></div><span>finding beads… (5–20 s)</span></div>
+            </div>
+            <div class="an-thr-row">
+              <label class="an-inline" title="How much brighter than the camera noise a bead's dimmer spot must be. Lower finds dimmer beads but also more noise.">strictness <input id="anSnr" type="range" min="1.5" max="20" step="0.5" value="4"></label>
+              <span id="anSnrVal" class="mono"></span>
+              <span class="spacer"></span>
+              <span id="anSnrCount" class="dim"></span>
+              <button id="anSnrAuto" class="linkish" title="Let the engine choose (automatic dim-data detection)">auto</button>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section class="an-step" id="anStep3">
+        <div class="an-step-h"><span class="an-num">3</span><span class="an-step-t">Start</span><span id="anState3" class="an-state"></span></div>
+        <div id="anSummary" class="an-summary"></div>
+        <div class="an-grid">
+          <label class="span2" title="Folder name under DHPSF_pipeline/runs/">Run name <input id="anName" type="text" spellcheck="false"></label>
+          <label class="span2 an-check" title="Air objective imaging a watery sample: light refraction makes the stage move less than the focus moves in the sample. Reports z multiplied by 1.33 (water / air refractive index). Off: z in stage units, as calibrated."><input type="checkbox" id="anTrueDepth"> Report true depth in the sample (air objective, watery sample: z × 1.33)</label>
+          <label class="span2 an-check" title="Native MATLAB tables in addition to the CSV files; needs MATLAB and takes about a minute"><input type="checkbox" id="anMatlab"> Also save MATLAB tables (needs MATLAB)</label>
+        </div>
+      </section>
+      <div class="an-foot">
+        <div id="anErr" class="an-err hidden"></div>
+        <button id="anStart" class="primary an-start">Start analysis</button>
+      </div>
+    </div>    <div id="anProgress" class="hidden">
+      <div class="an-status"><b id="anStage">starting</b><span class="spacer"></span><span id="anPct" class="mono"></span></div>
+      <div class="an-bar"><div id="anBarFill"></div></div>
+      <div class="an-times dim"><span id="anElapsed"></span><span id="anEta"></span></div>
+      <div id="anMsg" class="an-msg"></div>
+      <div id="anErrBox" class="an-err hidden"></div>
+      <details id="anLogWrap"><summary>log</summary><pre id="anLog"></pre></details>
+      <div class="an-actions">
+        <span id="anOut" class="dim mono"></span><span class="spacer"></span>
+        <button id="anCancel">Cancel</button>
+        <button id="anAgain" class="hidden">New analysis</button>
+        <button id="anOpen" class="primary hidden">Open results</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="fbModal" class="modal hidden">
+  <div class="modal-body fb">
+    <div class="an-head"><h3 id="fbTitle">Choose a file</h3><button id="fbClose" class="icon" title="Cancel">✕</button></div>
+    <div id="fbCrumbs" class="fb-crumbs"></div>
+    <div id="fbList" class="fb-list" tabindex="0"></div>
+    <div class="an-actions">
+      <span id="fbSelInfo" class="dim"></span><span class="spacer"></span>
+      <button id="fbCancel">Cancel</button><button id="fbOk" class="primary" disabled>Select</button>
+    </div>
+  </div>
+</div>
+<div id="toasts"></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

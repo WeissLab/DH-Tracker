@@ -1,0 +1,5 @@
+# text files are stored with LF; Windows batch files are always checked out (and zipped) with CRLF,
+# which cmd.exe needs for labels and GOTO/CALL to work
+* text=auto
+*.bat text eol=crlf
+*.mp4 binary

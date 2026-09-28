@@ -1,0 +1,16 @@
+# results, caches and data stay on the computer that made them
+DHPSF_pipeline/runs/
+DHPSF_pipeline/calibrations/
+exports/
+*.tif
+*.tiff
+setup_log.txt
+
+# Python / tools
+__pycache__/
+*.pyc
+.mplconfig/
+.claude/
+
+# written by the installer in each installed copy
+version.txt
