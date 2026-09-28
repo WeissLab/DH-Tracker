@@ -26,7 +26,9 @@ if not defined CONDA (
 rem conda lists every install and environment it made in this file (covers custom install folders)
 if not defined CONDA if exist "%USERPROFILE%\.conda\environments.txt" (
     for /f "usebackq delims=" %%D in ("%USERPROFILE%\.conda\environments.txt") do (
-        if not defined CONDA if exist "%%D\Scripts\conda.exe" set "CONDA=%%D\Scripts\conda.exe"
+        rem base installs only: an environment (...\envs\name) may contain its own conda.exe
+        set "D=%%D"
+        if not defined CONDA if "!D:\envs\=!"=="!D!" if exist "%%D\Scripts\conda.exe" set "CONDA=%%D\Scripts\conda.exe"
     )
 )
 if not defined CONDA (

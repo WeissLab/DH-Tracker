@@ -23,7 +23,11 @@ $Repo = "WeissLab/DH-Tracker"
 $Name = "DH-Tracker-2026"
 
 function Say($msg) { Write-Host $msg }
-function Fail($msg) { Write-Host ""; Write-Host "ERROR: $msg" -ForegroundColor Red; Read-Host "Press Enter to close"; exit 1 }
+function Fail($msg) {
+    Write-Host ""; Write-Host "ERROR: $msg" -ForegroundColor Red
+    try { Read-Host "Press Enter to close" | Out-Null } catch { }
+    exit 1
+}
 
 function Choose-Folder($default) {
     Say "Choose the folder to install $Name in (a folder dialog; it may open behind this window)."
@@ -93,7 +97,10 @@ function Find-Conda {
     # conda lists every install and environment it made here (covers custom install folders)
     $list = Join-Path $env:USERPROFILE ".conda\environments.txt"
     if (Test-Path $list) {
-        foreach ($d in Get-Content $list) { if ($d -and (Test-Path "$d\Scripts\conda.exe")) { return "$d\Scripts\conda.exe" } }
+        # base installs only: an environment (…\envs\name) may contain its own conda.exe
+        foreach ($d in Get-Content $list) {
+            if ($d -and $d -notmatch '\\envs\\' -and (Test-Path "$d\Scripts\conda.exe")) { return "$d\Scripts\conda.exe" }
+        }
     }
     return $null
 }
