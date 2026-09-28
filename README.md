@@ -1,6 +1,8 @@
 # DH-Tracker-2026
 
-3D tracking of fluorescent beads imaged through a double-helix point spread function (DH-PSF): finds the beads, measures their 3D position in every frame (z from the rotation of the two lobes, using a calibration z-scan), links them into tracks, analyses how each bead moves, and maps the deformation of the material, all in an interactive browser app. Made for indentation experiments on hydrogels, cells and collagen. Weiss Lab, www.WeissLab.ca.
+**DH-Tracker: 3D tracking and ensemble analysis of fluorescent beads using the double-helix point spread function**
+
+DH-Tracker is a browser-based graphical interface that converts movies from a double-helix (DH) microscope into 3D bead trajectories, motion analysis and deformation maps. A bead z-scan calibrates the lobe rotation with depth and the depth-dependent lateral shift across the field of view, and field-dependent variations in lobe separation are corrected from each movie's beads. Beads are localized by fitting both lobes of the DH image, including overlapping neighbours. Trajectories are linked across frames, corrected for drift using the beads themselves, and refined by Kalman smoothing. Each bead's motion is classified into states over time using the models of aTrack and ExaTrack, and the displacements of all beads are interpolated into continuous deformation and strain fields. Weiss Lab, www.WeissLab.ca.
 
 ## Install (Windows)
 
