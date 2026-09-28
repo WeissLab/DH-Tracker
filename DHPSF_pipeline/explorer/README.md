@@ -1,4 +1,4 @@
-# DH-Tracker-2026 explorer
+# DH-Tracker explorer
 
 Local, offline web app for exploring 3D double-helix-PSF bead localizations and tracks on top of the raw movies. It covers the movie with overlays, a 3D track view, per-track plots, displacement fields, ROI selection, live re-tracking and export.
 
@@ -10,7 +10,7 @@ It uses only Python's standard-library `http.server`, plus numpy, tifffile, PIL 
 
 **Folders (☰ › Folders):** the movies folder (where New analysis's file picker opens) and the results folder (where new analyses are saved and which the run selector lists). **Change…** opens a folder dialog on this computer. Both are remembered in your user profile between sessions and across program updates (`user_settings.py`); setup asks for them once. Results made earlier in another folder stay there: move their folders into the results folder to see them in the list.
 
-**Updates:** in a copy installed with the GitHub installer, the explorer asks GitHub for the newest version (at most every 6 hours; nothing is sent but the request) and shows **⬆ update available** in the top bar when there is one; ☰ › Help shows the installed version. Updating is done by the launcher: close its window and start `Start DH-Tracker-2026.bat` again.
+**Updates:** in a copy installed with the GitHub installer, the explorer asks GitHub for the newest version (at most every 6 hours; nothing is sent but the request) and shows **⬆ update available** in the top bar when there is one; ☰ › Help shows the installed version. Updating is done by the launcher: close its window and start `Start DH-Tracker.bat` again.
 
 ```powershell
 python DHPSF_pipeline/explorer/app.py

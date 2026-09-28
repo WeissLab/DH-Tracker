@@ -1003,7 +1003,7 @@ def version_info(now: float | None = None, fetch=None) -> dict:
         def ask():
             import urllib.request
             req = urllib.request.Request(f"https://api.github.com/repos/{GITHUB_REPO}/commits/main",
-                                         headers={"Accept": "application/vnd.github.sha", "User-Agent": "DH-Tracker-2026"})
+                                         headers={"Accept": "application/vnd.github.sha", "User-Agent": "DH-Tracker"})
             with urllib.request.urlopen(req, timeout=5) as r:
                 return r.read(64).decode("ascii", "ignore").strip()
         try:
@@ -1031,7 +1031,7 @@ def choose_folder(which: str) -> dict:
         raise HttpError(409, "a folder dialog is already open")
     try:
         start = user_settings.data_dir() if which == "data" else RUNS_DIR
-        p = user_settings.ask_folder("DH-Tracker-2026: " + ("folder with your movies (TIFF files)" if which == "data"
+        p = user_settings.ask_folder("DH-Tracker: " + ("folder with your movies (TIFF files)" if which == "data"
                                                             else "where to save results"), start)
     finally:
         _DIALOG_LOCK.release()
@@ -1441,7 +1441,7 @@ def markdown_to_html(md: str) -> str:
 
 
 README_PAGES = {"/readme": ("DH-PSF bead tracking: README", PIPELINE_DIR / "README.md"),
-                "/readme/explorer": ("DH-Tracker-2026 explorer: README", HERE / "README.md")}
+                "/readme/explorer": ("DH-Tracker explorer: README", HERE / "README.md")}
 
 
 def readme_page(path: str) -> bytes:
@@ -1464,7 +1464,7 @@ table{{border-collapse:collapse;margin:10px 0;font-size:14px}} th,td{{border:1px
 li{{margin:2px 0}}</style></head><body><main>{nav}{body}</main></body></html>""".encode("utf-8")
 
 
-GUIDE_VIDEO = REPO / "DH-Tracker-2026 guide.mp4"
+GUIDE_VIDEO = REPO / "DH-Tracker guide.mp4"
 
 
 def process_start_time(pid: int) -> float | None:
@@ -1817,7 +1817,7 @@ LOOPBACK_NAMES = ("127.0.0.1", "localhost", "[::1]")
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DHPSFExplorer/1.0"
+    server_version = "DH-Tracker/1.0"
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):  # quieter log: skip frame requests
@@ -2280,7 +2280,7 @@ def main(argv=None):
               "its folders, read TIFF files and start analyses; there is no password.", flush=True)
     srv = ThreadingHTTPServer((a.host, a.port), Handler)
     srv.daemon_threads = True
-    print(f"DH-Tracker-2026 explorer: http://{a.host}:{a.port}  (results={results})", flush=True)
+    print(f"DH-Tracker explorer: http://{a.host}:{a.port}  (results={results})", flush=True)
     if a.open_browser:
         import webbrowser
         threading.Timer(0.5, webbrowser.open, args=(f"http://{a.host}:{a.port}",)).start()

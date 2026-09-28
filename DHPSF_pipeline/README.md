@@ -1,4 +1,4 @@
-# DH-Tracker-2026: DH-PSF bead tracking
+# DH-Tracker: DH-PSF bead tracking
 
 Finds fluorescent beads imaged through a double-helix point spread function (DH-PSF), measures their 3D position in every frame (z from the rotation of the two lobes, using a calibration z-scan), links them into tracks, analyses how each bead moves, and shows everything in an interactive browser app (the explorer), including deformation maps.
 
@@ -6,7 +6,7 @@ Finds fluorescent beads imaged through a double-helix point spread function (DH-
 
 | | |
 |---|---|
-| `Start DH-Tracker-2026.bat` (one level up) | double-click to use the program |
+| `Start DH-Tracker.bat` (one level up) | double-click to use the program |
 | `analyze.py` | runs an analysis: calibration + movie(s) → results (the explorer calls it too) |
 | `pipeline.py` | the localization and tracking engine |
 | `track_analysis.py` | motion analysis of the tracks (runs automatically after an analysis) |
@@ -20,34 +20,34 @@ Finds fluorescent beads imaged through a double-helix point spread function (DH-
 
 ## Setting up on a new computer (Windows, once)
 
-**Easiest:** download `Install DH-Tracker-2026.bat` from https://github.com/WeissLab/DH-Tracker (open it, **Download raw file**) and double-click it. It asks for an install folder (default `Documents\DH-Tracker-2026`), downloads the newest version there, offers Miniconda (winget) if there is no conda, and runs steps 3–4 below. The installed copy remembers its version (`version.txt`); `Start DH-Tracker-2026.bat` then checks GitHub (at most 5 s, skipped offline) and offers to update, replacing only the program files (results, calibration caches and settings are kept; the setup runs again only when `requirements.txt` changed). The logic is in `install.ps1`.
+**Easiest:** download `Install DH-Tracker.bat` from https://github.com/WeissLab/DH-Tracker (open it, **Download raw file**) and double-click it. It asks for an install folder (default `Documents\DH-Tracker`), downloads the newest version there, offers Miniconda (winget) if there is no conda, and runs steps 3–4 below. The installed copy remembers its version (`version.txt`); `Start DH-Tracker.bat` then checks GitHub (at most 5 s, skipped offline) and offers to update, replacing only the program files (results, calibration caches and settings are kept; the setup runs again only when `requirements.txt` changed). The logic is in `install.ps1`.
 
 By hand:
 
-1. Get the project folder (the folder holding `Start DH-Tracker-2026.bat` and `DHPSF_pipeline/`): on https://github.com/WeissLab/DH-Tracker, **Code › Download ZIP**, then unzip it anywhere (or copy the folder from another computer). The TIFF files can be anywhere on the computer (any drive, including network drives); you pick them in the app and they are only read, never changed or copied.
+1. Get the project folder (the folder holding `Start DH-Tracker.bat` and `DHPSF_pipeline/`): on https://github.com/WeissLab/DH-Tracker, **Code › Download ZIP**, then unzip it anywhere (or copy the folder from another computer). The TIFF files can be anywhere on the computer (any drive, including network drives); you pick them in the app and they are only read, never changed or copied.
 2. Install Miniconda (free, from the Anaconda website; the default options are fine).
-3. Double-click **`Setup DH-Tracker-2026.bat`** in the project folder. It finds Miniconda, creates the environment `dhpsf-tracking-2026` with the exact package versions in `requirements.txt` (about 1 GB, a few minutes, needs internet), and runs the 68 tests. Two folder dialogs then ask where your movies are and where results should be saved (Cancel for the second: `Documents\DH-Tracker results`). It ends with "Ready" (details in `setup_log.txt`). Running it again only checks and repairs an existing setup.
+3. Double-click **`Setup DH-Tracker.bat`** in the project folder. It finds Miniconda, creates the environment `dh-tracker` with the exact package versions in `requirements.txt` (about 1 GB, a few minutes, needs internet), and runs the 68 tests. Two folder dialogs then ask where your movies are and where results should be saved (Cancel for the second: `Documents\DH-Tracker results`). It ends with "Ready" (details in `setup_log.txt`). Running it again only checks and repairs an existing setup.
 
    The same by hand, in an **Anaconda Prompt** from the project folder:
    ```bat
-   conda create -n dhpsf-tracking-2026 -c conda-forge --override-channels python=3.11 pip
-   conda activate dhpsf-tracking-2026
+   conda create -n dh-tracker -c conda-forge --override-channels python=3.11 pip
+   conda activate dh-tracker
    pip install -r DHPSF_pipeline\requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
    cd DHPSF_pipeline
    python -m unittest test_pipeline test_track_analysis explorer.test_explorer
    ```
 4. Optional: MATLAB, only to also write native MATLAB tables (`*_localizations.mat`); without it the CSV and MAT outputs are written as usual.
 
-After that, double-click `Start DH-Tracker-2026.bat` whenever you want to use it (below). **`DH-Tracker-2026 guide.mp4`** (next to the launcher, 3 minutes, captioned) shows a whole session: a new analysis of a 20× movie, the results, and the exports.
+After that, double-click `Start DH-Tracker.bat` whenever you want to use it (below). **`DH-Tracker guide.mp4`** (next to the launcher, 3 minutes, captioned) shows a whole session: a new analysis of a 20× movie, the results, and the exports.
 
 ## Quick start: one calibration + one movie
 
-Double-click **`Start DH-Tracker-2026.bat`** in the project folder. It finds Python, starts the explorer and opens it in your browser; if the explorer is already running, it just opens it. Keep its window open while you work. Then click **New analysis**, pick the calibration z-stack and the movie(s), check the magnification, and press Start.
+Double-click **`Start DH-Tracker.bat`** in the project folder. It finds Python, starts the explorer and opens it in your browser; if the explorer is already running, it just opens it. Keep its window open while you work. Then click **New analysis**, pick the calibration z-stack and the movie(s), check the magnification, and press Start.
 
 Or without the browser, from an Anaconda Prompt in the project folder:
 
 ```bat
-conda activate dhpsf-tracking-2026
+conda activate dh-tracker
 python DHPSF_pipeline\analyze.py CALIBRATION.tif MOVIE.tif
 ```
 

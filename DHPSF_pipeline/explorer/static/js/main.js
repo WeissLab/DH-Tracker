@@ -545,8 +545,8 @@ function bindUI() {
   $('#updBadge').onclick = () => toast(UPDATE_HOW, 'info', 15000);
 }
 // a newer version on GitHub (installed copies only; the launcher does the update itself)
-const UPDATE_HOW = 'To update: when no analysis is running, close the DH-Tracker-2026 window (the black one) and '
-  + 'double-click Start DH-Tracker-2026.bat again; answer Y. Your results, calibrations and settings are kept.';
+const UPDATE_HOW = 'To update: when no analysis is running, close the DH-Tracker window (the black one) and '
+  + 'double-click Start DH-Tracker.bat again; answer Y. Your results, calibrations and settings are kept.';
 async function checkVersion() {
   let v;
   try { v = await api('/api/version'); } catch (e) { return; }
@@ -785,7 +785,7 @@ async function loadRun() {
   M.clearFrames();
   const sel = $('#movieSel');
   sel.innerHTML = movies.map((m) => `<option value="${escHtml(m.name)}" ${m.available ? '' : 'disabled'}>${escHtml(m.name)}${m.localizations ? '' : ' (no CSV)'}</option>`).join('');
-  document.title = `DH-Tracker-2026 — ${results.split(/[\\/]/).slice(-1)[0]}`;
+  document.title = `DH-Tracker — ${results.split(/[\\/]/).slice(-1)[0]}`;
   $('#dataInfo').title = results;
   refreshRuns().catch((e) => console.warn('runs list unavailable', e));
   $('#emptyState').classList.add('hidden');

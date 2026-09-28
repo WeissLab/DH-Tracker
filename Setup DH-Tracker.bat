@@ -1,18 +1,18 @@
 @echo off
-rem Double-click once on a new computer (after installing Miniconda) to set up DH-Tracker-2026.
-rem It creates the Python environment "dhpsf-tracking-2026" with the exact package versions in
+rem Double-click once on a new computer (after installing Miniconda) to set up DH-Tracker.
+rem It creates the Python environment "dh-tracker" with the exact package versions in
 rem DHPSF_pipeline\requirements.txt, then runs the tests. Running it again repairs or checks an existing setup.
 rem Needs an internet connection (about 1 GB of packages) and takes a few minutes.
 setlocal EnableExtensions EnableDelayedExpansion
 rem (inside ( ) blocks variables are read as !VAR!: a folder name with brackets, e.g. "Harris_3DPSF (copy)", would break %VAR%)
 set "HERE=%~dp0"
-if not defined DHPSF_ENV set "DHPSF_ENV=dhpsf-tracking-2026"
+if not defined DHPSF_ENV set "DHPSF_ENV=dh-tracker"
 set "REQ=%HERE%DHPSF_pipeline\requirements.txt"
 set "LOG=%HERE%setup_log.txt"
-echo DH-Tracker-2026 setup: the Python environment "%DHPSF_ENV%".
+echo DH-Tracker setup: the Python environment "%DHPSF_ENV%".
 echo A log is written to %LOG%
 echo.
-echo DH-Tracker-2026 setup %DATE% %TIME% > "%LOG%"
+echo DH-Tracker setup %DATE% %TIME% > "%LOG%"
 
 rem ---- find conda (Miniconda or Anaconda)
 set "CONDA="
@@ -102,8 +102,8 @@ echo Two folder dialogs follow ^(they may open behind this window^):
 "%PY%" "%HERE%DHPSF_pipeline\user_settings.py" >> "%LOG%" 2>&1
 
 echo.
-echo Ready. Double-click "Start DH-Tracker-2026.bat" to use the program.
-echo ^(DH-Tracker-2026 guide.mp4 shows a whole session.^)
+echo Ready. Double-click "Start DH-Tracker.bat" to use the program.
+echo ^(DH-Tracker guide.mp4 shows a whole session.^)
 echo Setup finished OK >> "%LOG%"
 echo.
 pause

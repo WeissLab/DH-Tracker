@@ -1,15 +1,15 @@
-# DH-Tracker-2026 installer / updater (Windows).
+# DH-Tracker installer / updater (Windows).
 #
-# New computer: double-click "Install DH-Tracker-2026.bat" (from the GitHub page), or in PowerShell:
+# New computer: double-click "Install DH-Tracker.bat" (from the GitHub page), or in PowerShell:
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/WeissLab/DH-Tracker/main/install.ps1)))
 #
-# 1. asks where to install (default Documents\DH-Tracker-2026)
+# 1. asks where to install (default Documents\DH-Tracker)
 # 2. downloads the newest version from github.com/WeissLab/DH-Tracker and unzips it there
 # 3. offers to install Miniconda (winget) if there is no conda
-# 4. runs "Setup DH-Tracker-2026.bat" (Python environment, tests, your movies and results folders)
-# 5. opens the install folder, which holds "Start DH-Tracker-2026.bat"
+# 4. runs "Setup DH-Tracker.bat" (Python environment, tests, your movies and results folders)
+# 5. opens the install folder, which holds "Start DH-Tracker.bat"
 #
-# Update (Start DH-Tracker-2026.bat offers it when GitHub has a newer version):
+# Update (Start DH-Tracker.bat offers it when GitHub has a newer version):
 #   install.ps1 -Target <install folder> -Update
 # replaces the program files only: results, calibration caches and settings are kept.
 param(
@@ -20,7 +20,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"          # Invoke-WebRequest is very slow with its progress bar
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $Repo = "WeissLab/DH-Tracker"
-$Name = "DH-Tracker-2026"
+$Name = "DH-Tracker"
 
 function Say($msg) { Write-Host $msg }
 function Fail($msg) {

@@ -1,9 +1,9 @@
-"""Per-user preferences of DH-Tracker-2026: the default data folder and the results folder.
+"""Per-user preferences of DH-Tracker: the default data folder and the results folder.
 
 Kept in the user's profile (Windows: %APPDATA%\\DH-Tracker\\settings.json), not in the program
 folder, so they are remembered between sessions and survive installing a newer version.
 
-    python user_settings.py --choose     folder dialogs (Setup DH-Tracker-2026.bat runs this once)
+    python user_settings.py --choose     folder dialogs (Setup DH-Tracker.bat runs this once)
     python user_settings.py              show the current settings
 """
 from __future__ import annotations
@@ -87,12 +87,12 @@ def choose(force: bool = False) -> dict:
     d = load()
     if force or 'data_dir' not in d:
         print('Choose the folder that holds your movies (TIFF files); the file picker will open there.', flush=True)
-        p = ask_folder('DH-Tracker-2026: folder with your movies (TIFF files)', Path.home() / 'Documents')
+        p = ask_folder('DH-Tracker: folder with your movies (TIFF files)', Path.home() / 'Documents')
         if p:
             d = save(data_dir=p)
     if force or 'results_dir' not in d:
         print(f'Choose where results are saved (suggested: {default_results_dir()}).', flush=True)
-        p = ask_folder('DH-Tracker-2026: where to save results (Cancel = Documents\\DH-Tracker results)',
+        p = ask_folder('DH-Tracker: where to save results (Cancel = Documents\\DH-Tracker results)',
                        Path.home() / 'Documents')
         p = p or default_results_dir()
         p.mkdir(parents=True, exist_ok=True)
