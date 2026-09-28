@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use DH-Tracker-2026 in published work, please cite it as below."
+type: software
+title: "DH-Tracker-2026: 3D tracking of fluorescent beads imaged through a double-helix point spread function"
+abstract: >-
+  DH-Tracker-2026 finds fluorescent beads imaged through a double-helix point spread function (DH-PSF),
+  measures their 3D position in every frame from the rotation of the two lobes using a calibration z-scan,
+  links them into tracks, analyses how each bead moves, and maps the deformation of the material, with an
+  interactive browser app for inspecting the results and starting new analyses.
+authors:
+  - family-names: Weiss
+    given-names: Lucien E.
+    email: lucien.weiss@polymtl.ca
+    orcid: "https://orcid.org/0000-0002-0971-7329"
+    affiliation: "Department of Engineering Physics and Lassonde DeepTech Institute, Polytechnique Montréal, Montréal H3T 1J4, Québec, Canada"
+repository-code: "https://github.com/WeissLab/DH-Tracker"
+url: "https://www.weisslab.ca"
+license: BSD-3-Clause
+date-released: "2026-09-28"
+keywords:
+  - double-helix point spread function
+  - single-particle tracking
+  - 3D localization microscopy
+  - fluorescent beads
+  - indentation
+  - deformation mapping
