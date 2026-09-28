@@ -21,8 +21,14 @@ if exist "%HERE%version.txt" if exist "%HERE%install.ps1" call :checkupdate
 rem Find a Python that has the packages the pipeline needs.
 set "PY="
 rem (the dhpsf-tracking-2026 environment in the usual Miniconda / Anaconda locations)
-for %%P in ("D:\apps\anaconda3\envs\dhpsf-tracking-2026\python.exe" "%USERPROFILE%\miniconda3\envs\dhpsf-tracking-2026\python.exe" "%USERPROFILE%\anaconda3\envs\dhpsf-tracking-2026\python.exe" "%LOCALAPPDATA%\miniconda3\envs\dhpsf-tracking-2026\python.exe" "%LOCALAPPDATA%\anaconda3\envs\dhpsf-tracking-2026\python.exe" "%ProgramData%\miniconda3\envs\dhpsf-tracking-2026\python.exe" "%ProgramData%\anaconda3\envs\dhpsf-tracking-2026\python.exe" "%USERPROFILE%\.conda\envs\dhpsf-tracking-2026\python.exe") do (
+for %%P in ("%USERPROFILE%\miniconda3\envs\dhpsf-tracking-2026\python.exe" "%USERPROFILE%\anaconda3\envs\dhpsf-tracking-2026\python.exe" "%LOCALAPPDATA%\miniconda3\envs\dhpsf-tracking-2026\python.exe" "%LOCALAPPDATA%\anaconda3\envs\dhpsf-tracking-2026\python.exe" "%ProgramData%\miniconda3\envs\dhpsf-tracking-2026\python.exe" "%ProgramData%\anaconda3\envs\dhpsf-tracking-2026\python.exe" "%USERPROFILE%\.conda\envs\dhpsf-tracking-2026\python.exe") do (
     if not defined PY if exist %%P set "PY=%%~P"
+)
+rem (or wherever conda made it: conda lists its environments in this file)
+if not defined PY if exist "%USERPROFILE%\.conda\environments.txt" (
+    for /f "usebackq delims=" %%D in ("%USERPROFILE%\.conda\environments.txt") do (
+        if not defined PY if /i "%%~nxD"=="dhpsf-tracking-2026" if exist "%%D\python.exe" set "PY=%%D\python.exe"
+    )
 )
 if not defined PY (
     for /f "delims=" %%P in ('where python 2^>nul') do (

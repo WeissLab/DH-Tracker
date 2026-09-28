@@ -17,11 +17,17 @@ echo DH-Tracker-2026 setup %DATE% %TIME% > "%LOG%"
 rem ---- find conda (Miniconda or Anaconda)
 set "CONDA="
 if defined CONDA_EXE if exist "%CONDA_EXE%" set "CONDA=%CONDA_EXE%"
-for %%P in ("%USERPROFILE%\miniconda3" "%USERPROFILE%\anaconda3" "%LOCALAPPDATA%\miniconda3" "%LOCALAPPDATA%\anaconda3" "%ProgramData%\miniconda3" "%ProgramData%\anaconda3" "D:\apps\anaconda3" "C:\miniconda3" "C:\anaconda3") do (
+for %%P in ("%USERPROFILE%\miniconda3" "%USERPROFILE%\anaconda3" "%LOCALAPPDATA%\miniconda3" "%LOCALAPPDATA%\anaconda3" "%ProgramData%\miniconda3" "%ProgramData%\anaconda3" "C:\miniconda3" "C:\anaconda3") do (
     if not defined CONDA if exist "%%~P\Scripts\conda.exe" set "CONDA=%%~P\Scripts\conda.exe"
 )
 if not defined CONDA (
     for /f "delims=" %%C in ('where conda.exe 2^>nul') do if not defined CONDA set "CONDA=%%C"
+)
+rem conda lists every install and environment it made in this file (covers custom install folders)
+if not defined CONDA if exist "%USERPROFILE%\.conda\environments.txt" (
+    for /f "usebackq delims=" %%D in ("%USERPROFILE%\.conda\environments.txt") do (
+        if not defined CONDA if exist "%%D\Scripts\conda.exe" set "CONDA=%%D\Scripts\conda.exe"
+    )
 )
 if not defined CONDA (
     echo Could not find conda. Install Miniconda first ^(free, from the Anaconda website; default options^),

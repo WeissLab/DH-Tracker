@@ -90,6 +90,11 @@ function Find-Conda {
     }
     $c = Get-Command conda.exe -ErrorAction SilentlyContinue
     if ($c) { return $c.Source }
+    # conda lists every install and environment it made here (covers custom install folders)
+    $list = Join-Path $env:USERPROFILE ".conda\environments.txt"
+    if (Test-Path $list) {
+        foreach ($d in Get-Content $list) { if ($d -and (Test-Path "$d\Scripts\conda.exe")) { return "$d\Scripts\conda.exe" } }
+    }
     return $null
 }
 if (-not (Find-Conda)) {
