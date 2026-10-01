@@ -10,7 +10,6 @@ setup_log.txt
 __pycache__/
 *.pyc
 .mplconfig/
-.claude/
 
 # written by the installer in each installed copy
 version.txt

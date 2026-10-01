@@ -155,16 +155,17 @@ class TrackAnalysisTests(unittest.TestCase):
         np.testing.assert_allclose(v1.numpy(), v2.numpy(), atol=1e-10)
 
     def test_other_motion_is_not_still(self):
-        # still -> indent along u -> hold; some beads later move again in another direction (unrelated
-        # motion, e.g. pushed by a cell): that is 'other moving', not a still stage with a large step
+        # still -> indent along u (downward, as the indenter pushes) -> hold; some beads later move again
+        # in another direction (unrelated motion, e.g. pushed by a cell): that is 'other moving', not a
+        # still stage with a large step
         rng = np.random.default_rng(8)
-        T, tracks = 80, []
+        T, tracks, onset = 80, [], {}
         sig = np.array([.06, .06, .6])
         for k in range(30):
             steps = rng.normal(0, .008, (T, 3))
             if k >= 10:
-                u = rng.normal(0, 1, 3); u /= np.linalg.norm(u)
-                a = 20+int(rng.integers(-3, 4))
+                u = rng.normal(0, 1, 3); u[2] = -abs(u[2]); u /= np.linalg.norm(u)
+                a = onset[k] = 20+int(rng.integers(-3, 4))
                 steps[a:a+15] += .12*u
                 if k >= 22:
                     w = np.cross(u, rng.normal(0, 1, 3)); w /= np.linalg.norm(w)
@@ -179,7 +180,11 @@ class TrackAnalysisTests(unittest.TestCase):
         self.assertLess(float((p_other[:22] > .5).mean()), .02)                    # nothing else
         stage = (post[..., :3]+post[..., 3:]).argmax(-1)
         self.assertTrue(np.all(stage[:10] != 1))                                   # still beads never indent
-        self.assertTrue(np.all(stage[22:, 55] == 2))                               # the stage (hold) is remembered
+        found = np.array([np.argmax(stage[k] == 1) for k in range(10, 22)])        # beads that only indent
+        self.assertLessEqual(float(np.median(np.abs(found-[onset[k] for k in range(10, 22)]))), 2.)
+        # a bead that moves twice: both moves count as moving (the first may be called indent or other)
+        p_move = post[..., [1]].sum(-1)+p_other
+        self.assertGreater(float(np.mean([(p_move[k, onset[k]+2:onset[k]+13] > .5).mean() for k in range(22, 30)])), .8)
 
     def test_classification_and_moving_states(self):
         rng = np.random.default_rng(0)

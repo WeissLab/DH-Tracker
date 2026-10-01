@@ -791,7 +791,8 @@ class MultiStateModel:
     """
 
     def __init__(self, states=('diffusive', 'directed'), M=12, gamma=True, d_track=None, error='fixed', e_track=None,
-                 u_track=None, lifetime_prior=None, ordered=False, other=False, still_d_max=None):
+                 u_track=None, lifetime_prior=None, ordered=False, other=False, still_d_max=None, stage_keys=None,
+                 cap_keys=None, stage_dirs=None, cap_all=False, q_max=None, speed_track=None):
         """error: how the reported localization errors are scaled -- 'fixed' (as given), 'track' (by
         each track's factor e_track, e.g. from fit_single_models) or 'state' (a free factor per state,
         as in ExaTrack).
@@ -812,8 +813,21 @@ class MultiStateModel:
         the sequence, e.g. a bead pushed by a cell. Its velocity is a free 3D vector (not along u),
         re-drawn on entering (N(0, v^2) per axis) and changing by q per frame; all side states share
         one d, q, v and mean lifetime. States K..2K-1 are the side states of stages 0..K-1.
-        still_d_max (ordered): an upper bound on the diffusive stages' shared step size (smooth:
-        d = still_d_max sigmoid(x)), e.g. from the still beads' single-model fits."""
+        still_d_max (ordered): an upper bound on the diffusive stages' step sizes (smooth:
+        d = still_d_max sigmoid(x)), e.g. from the still beads' single-model fits.
+        stage_keys (ordered): a name per stage; diffusive stages with the same name share one step size
+        (e.g. the first and last 'still'), others have their own (e.g. 'hold'). Default: all share one;
+        but identical stages are interchangeable, so the switches between them carry no meaning.
+        stage_dirs (ordered, with u_track): per stage +1 (moves down, toward -z), -1 (up) or 0 (either).
+        Each track's direction u is then oriented downward (u_z <= 0), and on entering such a stage the
+        speed starts at a fitted mean mu > 0 in that direction (s ~ N(+-mu, v^2)) instead of N(0, v^2):
+        without it, which directed stage takes the fast indentation is arbitrary.
+        cap_all (ordered): still_d_max bounds every state's step d, directed and side states too; q_max
+        bounds every directed state's velocity change q (smooth: q = q_max sigmoid(x)). An unbounded d or
+        q turns its state into a catch-all for any motion (e.g. an 'indent' stage with q = 2.5 um/frame).
+        speed_track (B,): each track's own speed (e.g. fit_single_models' mean_speed; max_speed was worse on the 10x movie). With stage_dirs,
+        a stage's entering speed is then that speed times a fitted factor: beads under the indenter move
+        tens of times faster than those far away, which one shared speed cannot describe."""
         assert all(s in STATE_TYPES for s in states) and len(states) >= 2
         assert error in ('fixed', 'track', 'state') and (error != 'track' or e_track is not None)
         assert u_track is None or 'confined' not in states, 'directed-along-a-line mode has no confined state'
@@ -827,14 +841,18 @@ class MultiStateModel:
         if ordered:
             dg, groups = [], {}
             for k, s in enumerate(states):
-                g = ('side',) if self.side[k] else ('diffusive',) if s == 'diffusive' else (k,)
+                name = stage_keys[k] if stage_keys and not self.side[k] else ''
+                g = ('side',) if self.side[k] else ('diffusive', name) if s == 'diffusive' else (k,)
                 dg.append(groups.setdefault(g, len(groups)))
             self.d_group = dg
-            self.still_group = groups.get(('diffusive',))
+            self.capped_groups = sorted(set(groups.values()) if cap_all else
+                                        {v for g, v in groups.items() if g[0] == 'diffusive'
+                                         and (cap_keys is None or str(g[1]).rstrip('0123456789') in cap_keys)})
         else:
             self.d_group = list(range(len(states)))
-            self.still_group = None
-        self.still_d_max = still_d_max if self.still_group is not None else None
+            self.capped_groups = []
+        self.still_d_max = still_d_max if self.capped_groups else None
+        self.q_max = q_max
         self.life_group = list(range(n))+[n]*n if other else list(range(n))
         self.qv = ['o' if self.side[k] else str(k) for k in range(len(states))]
         self.states, self.K, self.M, self.gamma = tuple(states), len(states), M, gamma
@@ -844,8 +862,13 @@ class MultiStateModel:
         if u_track is not None:
             u = torch.as_tensor(np.asarray(u_track, float))
             self.u = u/u.norm(dim=1, keepdim=True).clamp_min(1e-12)
+            if stage_dirs and any(stage_dirs):      # 'down' along u means toward -z
+                self.u = torch.where(self.u[:, 2:3] > 0, -self.u, self.u)
         else:
             self.u = None
+        self.dirs = [int(stage_dirs[k]) if stage_dirs and not self.side[k] else 0 for k in range(len(states))]
+        self.speed = (torch.as_tensor(np.asarray(speed_track, float)).clamp_min(1e-4)
+                      if speed_track is not None and any(self.dirs) else None)
         self.lifetime_prior = lifetime_prior
         K = self.K
         t = lambda v: torch.tensor(v, requires_grad=True)
@@ -859,6 +882,8 @@ class MultiStateModel:
         for k, s in enumerate(states):
             if s == 'directed' and f'log_q{self.qv[k]}' not in self.raw:
                 self.raw[f'log_q{self.qv[k]}'] = t(math.log(.01)); self.raw[f'log_v{self.qv[k]}'] = t(math.log(.05))
+            if self.dirs[k]:                    # the bead's own speed x exp(this) (factor 1 to start)
+                self.raw[f'log_mu{k}'] = t(0. if self.speed is not None else math.log(.05))
             elif s == 'confined':
                 self.raw[f'logit_l{k}'] = t(math.log(.2/.8)); self.raw[f'log_q{k}'] = t(math.log(.01))
                 self.raw[f'log_s{k}'] = t(math.log(.1))
@@ -895,8 +920,10 @@ class MultiStateModel:
                     seen += 1
                 elif s == 'directed':
                     d = med(fit['d_directed'], dirc)
-                    self.raw[f'log_q{self.qv[k]}'].fill_(math.log(max(med(fit['q_directed'], dirc), 1e-4)))
+                    self.raw[f'log_q{self.qv[k]}'].fill_(self._q_raw(med(fit['q_directed'], dirc)))
                     self.raw[f'log_v{self.qv[k]}'].fill_(math.log(max(med(fit['v_directed'], dirc), 1e-3)))
+                    if f'log_mu{k}' in self.raw and self.speed is None:   # entering speed: the directed tracks' typical one
+                        self.raw[f'log_mu{k}'].fill_(math.log(max(med(fit['mean_speed'], dirc), 1e-3)))
                 else:
                     d = med(fit['d_confined'], conf)
                     l = min(max(med(fit['l_confined'], conf), .02), .95)
@@ -945,22 +972,35 @@ class MultiStateModel:
         p['e'] = torch.exp(r['log_e']) if 'log_e' in r else None                # per-state error factors
         for k, s in enumerate(self.states):
             if s == 'directed':
-                p[f'q{k}'], p[f'v{k}'] = torch.exp(r[f'log_q{self.qv[k]}']), torch.exp(r[f'log_v{self.qv[k]}'])
+                p[f'q{k}'], p[f'v{k}'] = self._q(r[f'log_q{self.qv[k]}']), torch.exp(r[f'log_v{self.qv[k]}'])
+                if f'log_mu{k}' in r:
+                    p[f'mu{k}'] = self.dirs[k]*torch.exp(r[f'log_mu{k}'])
             elif s == 'confined':
                 p[f'l{k}'] = torch.sigmoid(r[f'logit_l{k}'])*.999
                 p[f'q{k}'], p[f's{k}'] = torch.exp(r[f'log_q{k}']), torch.exp(r[f'log_s{k}'])
         return p
 
+    def _q(self, raw):
+        """Velocity change q from its raw parameter (a logit when bounded by q_max)."""
+        return self.q_max*torch.sigmoid(raw) if self.q_max else torch.exp(raw)
+
+    def _q_raw(self, q):
+        if not self.q_max:
+            return math.log(max(q, 1e-4))
+        f = min(max(q/self.q_max, 1e-4), .9)
+        return math.log(f/(1-f))
+
     def _d_groups(self, raw):
         """Step size per parameter group from raw['log_d'] (the capped still group: raw is a logit)."""
         d = torch.exp(raw)
         if self.still_d_max is not None:
-            g = self.still_group
-            d = torch.cat([d[:g], (self.still_d_max*torch.sigmoid(raw[g])).reshape(1), d[g+1:]])
+            capped = torch.zeros(len(raw), dtype=torch.bool)
+            capped[self.capped_groups] = True
+            d = torch.where(capped, self.still_d_max*torch.sigmoid(raw), d)
         return d
 
     def _set_d(self, g, d):
-        if g == self.still_group and self.still_d_max is not None:
+        if g in self.capped_groups and self.still_d_max is not None:
             f = min(max(d/self.still_d_max, 1e-4), .9)
             self.raw['log_d'][g] = math.log(f/(1-f))
         else:
@@ -1181,6 +1221,10 @@ class MultiStateModel:
         m = {ax[a]: full(obs[:, 0, a][:, None, None]) for a in range(3)}
         for c in 's'+W:
             m[c] = torch.zeros(B, K, M)
+        mu_s = torch.stack([p.get(f'mu{k}', torch.zeros(())) for k in range(K)])[None, :, None]   # (1, K, 1)
+        if self.speed is not None:
+            mu_s = mu_s*self.speed[:, None, None]                  # (B, K, 1): each bead's own speed
+        m['s'] = full(mu_s.expand(B, K, 1))
         P = {k: torch.zeros(B, K, M) for k in KEYS}
         for a in range(3):
             P[ax[a]*2] = full(var[:, 0, a][:, None, None])
@@ -1214,6 +1258,7 @@ class MultiStateModel:
             e_m = {c: (n[c]+ref[c][:, 0])[:, :, None] for c in 'xyz'}
             for c in 's'+W:
                 e_m[c] = torch.zeros(B, K, 1)
+            e_m['s'] = mu_s.expand(B, K, 1)                       # the speed on entering (0 unless the stage has a direction)
             e_P.update(reset)
             e_mu = sW[:, :, None]
             if M > 1:
@@ -1415,11 +1460,18 @@ class MultiStateModel:
                 return sum((v*0).sum() for v in self.raw.values())+1e30
             return nll
         with _threads(1):
-            prev = None
+            prev, best = None, None
             for _ in range(max(restarts, 1)):
                 _optimize(loss, list(self.raw.values()), steps, lr, method, tol_change=tol_change)
                 with torch.no_grad():
                     now = float(loss())
+                    ok = math.isfinite(now) and all(bool(torch.isfinite(v).all()) for v in self.raw.values())
+                    if ok and (best is None or now < best[0]):
+                        best = (now, {k: v.detach().clone() for k, v in self.raw.items()})
+                    elif not ok and best is not None:        # a run that ended in an unusable region: back to the best
+                        for k, v in best[1].items():
+                            self.raw[k].copy_(v)
+                        break
                 if prev is not None and prev-now < 1.:
                     break
                 prev = now
@@ -1448,6 +1500,11 @@ class MultiStateModel:
                 e['error_factor'] = float(p['e'][k])
             if s == 'directed':
                 e.update(velocity_change_q=float(p[f'q{k}']), initial_velocity_spread_v=float(p[f'v{k}']))
+                if f'mu{k}' in p:
+                    if self.speed is not None:
+                        e['entering_speed_factor_down'] = float(p[f'mu{k}'])   # x the bead's own speed, downward (-: up)
+                    else:
+                        e['mean_entering_speed_down'] = float(p[f'mu{k}'])     # along the bead's downward direction
             if s == 'confined':
                 e.update(confinement_factor_l=float(p[f'l{k}']), well_diffusion_q=float(p[f'q{k}']), initial_well_spread_s=float(p[f's{k}']))
             if self.K > 2:
@@ -1462,25 +1519,47 @@ class MultiStateModel:
 STAGE_KINDS = {'still': 'diffusive', 'hold': 'diffusive', 'rest': 'diffusive', 'diffusive': 'diffusive',
                'indent': 'directed', 'retract': 'directed', 'move': 'directed', 'directed': 'directed'}
 DEFAULT_STAGES = ('still', 'indent', 'hold', 'retract', 'still')
+# direction of each directed stage: the indenter comes from above, so indentation moves beads down
+# (toward -z; the calibration scans move the sample down toward the objective) and retraction up
+STAGE_DIRS = {'indent': 1, 'retract': -1}
 
 
-def fit_stages(data, fit, cls, stages=DEFAULT_STAGES, kappa=1., other=True, still_quantile=.5):
+def fit_stages(data, fit, cls, stages=DEFAULT_STAGES, kappa=1., other=True, still_quantile=.5, share_still=False,
+               cap_keys=None, directions=True, cap_all=False, q_quantile=.9):
     """Ordered stages (MultiStateModel ordered=True) for experiments with a known sequence, e.g. an
     indentation: every bead starts in the first stage and can only move forward (stages it does not
     show are skipped). Directed stages move along each bead's own direction in 3D (u_directed), with
-    each bead's localization-error factor from its single-model fit; the diffusive ('still') stages
-    share one step size. other: each stage also has a side state for directed motion unrelated to the
-    sequence (any 3D direction), entered from and returning to that stage. Returns the model, per-frame
-    state probabilities (B, T, K, or 2K with the side states K..2K-1) and the velocity (B, T, 3)."""
+    each bead's localization-error factor from its single-model fit. Defaults, each needed on the
+    indentation movies (tests on the 10x 5 ms and 20x cells movies, 2026-09-28):
+    - directions: indent moves beads down (toward -z), retract up (STAGE_DIRS), each bead entering at
+      its own speed (mean_speed) times a fitted factor; otherwise which directed stage takes the fast
+      indentation is arbitrary, and beads under the indenter (tens of times faster) fit none of them;
+    - the diffusive stages' steps are bounded by the still beads' (median of the Brownian tracks' d,
+      still_quantile) and the directed stages' velocity change by the directed tracks' (90th
+      percentile, q_quantile): an unbounded step or velocity change makes its stage a catch-all;
+    - each stage its own step (share_still=False): identical stages are interchangeable.
+    other: each stage also has a side state for directed motion unrelated to the sequence (any 3D
+    direction), entered from and returning to that stage. Returns the model, per-frame state
+    probabilities (B, T, K, or 2K with the side states K..2K-1) and the velocity (B, T, 3)."""
     kinds = tuple(STAGE_KINDS[s] for s in stages)
     e_best = np.select([cls == 'confined', cls == 'directed'], [fit['e_confined'], fit['e_directed']], fit['e_brownian'])
-    # the still stages' step size may not exceed what still beads show (by default the median of the
-    # Brownian beads' fits): otherwise a still stage with a large step becomes a catch-all for moving
-    # beads (with the 90th percentile, the 20x cells fit ended in that optimum, ll 16894 against 47004)
+    # the diffusive stages' step sizes may not exceed what still beads show (by default the median of
+    # the Brownian beads' fits): otherwise a still stage with a large step becomes a catch-all for moving
+    # beads (with the 90th percentile, the 20x cells fit ended in that optimum, ll 16894 against 47004).
+    # Only stages of the same name share a step: with 'still' and 'hold' identical, beads switched
+    # between them arbitrarily (10x 5 ms: 166 beads 'entered hold', 9 'indent', against 126 before)
     still = cls == 'brownian'
-    d_max = float(np.quantile(fit['d_brownian'][still] if still.sum() >= 5 else fit['d_brownian'], still_quantile))
+    d_max = None if still_quantile is None else max(1e-3, float(np.quantile(
+        fit['d_brownian'][still] if still.sum() >= 5 else fit['d_brownian'], still_quantile)))
+    keys = tuple(stages) if share_still else tuple(f'{s}{i}' for i, s in enumerate(stages))
+    dirc = cls == 'directed'
+    q_max = None if q_quantile is None else max(1e-3, float(np.quantile(
+        fit['q_directed'][dirc] if dirc.sum() >= 5 else fit['q_directed'], q_quantile)))
     make = lambda o: MultiStateModel(kinds, M=1, gamma=False, ordered=True, error='track', e_track=e_best,
-                                     u_track=fit['u_directed'], other=o, still_d_max=max(d_max, 1e-3)).init_from(fit)
+                                     u_track=fit['u_directed'], other=o, still_d_max=d_max,
+                                     stage_keys=keys, cap_keys=cap_keys, cap_all=cap_all and d_max is not None,
+                                     q_max=q_max, speed_track=fit['mean_speed'],
+                                     stage_dirs=[STAGE_DIRS.get(s, 0) for s in stages] if directions else None).init_from(fit)
     model = make(False)
     post, vel = model.fit(data, kappa=kappa, restarts=10)
     if other:           # then add the side states, starting from the fitted stages
@@ -1490,7 +1569,7 @@ def fit_stages(data, fit, cls, stages=DEFAULT_STAGES, kappa=1., other=True, stil
             full.raw['log_mean_life'][:n-1] = model.raw['log_mean_life'][:n-1]
             full.raw['log_d'][:len(model.raw['log_d'])] = model.raw['log_d']
             for k, v in model.raw.items():
-                if k.startswith(('log_q', 'log_v')) or k == 'dest_logits':
+                if k.startswith(('log_q', 'log_v', 'log_mu')) or k == 'dest_logits':
                     full.raw[k].copy_(v)
         model = full
         post, vel = model.fit(data, kappa=kappa, restarts=4)

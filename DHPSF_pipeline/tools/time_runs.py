@@ -26,7 +26,7 @@ DATASETS = [
     dict(name='10x_5ms_and_1ms', calibration=DATA/'10X/3. Inter-Lobe Calibration/10x_0.04s_25ums_5ms_1_MMStack_Pos0.ome.tif',
          movies=[DATA/'10X/4. Indentation/10x_20um-indent_100ums_5ms_1_cropped.tif',
                  DATA/'10X/4. Indentation/10x_20um-indent_100ums_1ms_2_cropped.tif'],
-         note='1 ms movie uses the 5 ms calibration (the 1 ms z-scan is too dim to calibrate from)'),
+         note='the 1 ms movie uses the 5 ms calibration z-scan (same optics; the angle-z relation does not depend on exposure)'),
     dict(name='10x_10ms', calibration=DATA/'10X/3. Inter-Lobe Calibration/10x_0.04s_25ums_10ms_1_MMStack_Pos0.ome.tif',
          movies=[DATA/'10X/4. Indentation/10x_20um-indent_100ums_10ms_1_cropped.tif']),
     dict(name='10x_cells_collagen', calibration=DATA/'10X/3. Inter-Lobe Calibration/10xPALD_0.04s_25ums_1_MMStack_Pos0.ome.tif',
