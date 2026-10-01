@@ -29,10 +29,6 @@ Without the installer: **Code › Download ZIP**, unzip, install Miniconda, and 
 
 Both also open inside the app (☰ › Help, or F1).
 
-## Citation and license
-
-If you use DH-Tracker in published work, please cite it: **Cite this repository** (right-hand panel) gives APA and BibTeX, from [CITATION.cff](CITATION.cff).
-
-Lucien E. Weiss, Department of Engineering Physics and Lassonde DeepTech Institute, Polytechnique Montréal ([ORCID 0000-0002-0971-7329](https://orcid.org/0000-0002-0971-7329); lucien.weiss@polymtl.ca).
+## License
 
 BSD 3-Clause (see [LICENSE](LICENSE)).
