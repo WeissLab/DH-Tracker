@@ -29,7 +29,7 @@ os.environ.setdefault("MPLCONFIGDIR", str(Path(__file__).resolve().parent/'.mplc
 import numpy as np
 import tifffile
 import networkx as nx
-from scipy.ndimage import gaussian_filter, gaussian_filter1d, maximum_filter
+from scipy.ndimage import gaussian_filter, gaussian_filter1d, maximum_filter, zoom
 from scipy.optimize import least_squares, linear_sum_assignment
 from scipy.spatial import cKDTree
 from scipy.spatial.distance import cdist
@@ -102,7 +102,7 @@ QUALITY = ['residualRMS', 'minLobeSNR', 'jointEmitterCount', 'lobeSeparationPixe
 NCOL = len(COLUMNS)+len(QUALITY)
 C = {name: i for i, name in enumerate(COLUMNS+QUALITY)}
 VERSION = 2
-FIT_REVISION = 2    # per-frame fit output changed (2: sandwich least-squares covariance); refits stale caches
+FIT_REVISION = 3    # per-frame fit output changed (2: sandwich least-squares covariance; 3: local split refits, local-noise threshold); refits stale caches
 
 
 @dataclass
@@ -115,6 +115,8 @@ class Config:
     threshold_sigma: float = 6.   # strong peaks: DoG > this many robust DoG noise SDs
     weak_fraction: float = .55    # weak (partner-only) peaks, as a fraction of the strong threshold
     threshold: float = 0.         # optional absolute DoG floor in counts
+    local_noise_tile_px: int = 32  # threshold rises where a tile this size is noisier than the frame (0 = off)
+    local_noise_min_ratio: float = 2.  # ... by at least this factor (robust SD of second differences)
     # Pairing
     min_separation: float = 9.
     max_separation: float = 27.
@@ -154,6 +156,8 @@ class Config:
     shared_min_snr: float = 15.   # a shared-lobe pair's own lobe must reach this x camera noise
     split_sigma_ratio: float = 1.35  # a lobe this much wider than its window's other lobes is tried as two lobes
     split_min_gain: float = 1.     # ... kept if it adds a bead or lowers the total pairing cost by this much
+    split_max_tries: int = 6       # ... at most this many split refits per fit window
+    split_reach_sigmas: float = 3.  # ... refitting the lobes within this x max_sigma of the split lobe (others fixed)
     pixel_size_um: float = .325
     # Tracking
     tracker: str = 'lap'          # 'lap' (two-stage LAP), 'kalman' (constant-velocity Kalman + LAP), 'nearest'
@@ -225,12 +229,44 @@ def pixel_noise(image):
     return max(float(sd/np.sqrt(2)), 1e-3)
 
 
+def local_noise_ratio(image, tile, min_ratio=2.):
+    """Pixel noise per tile relative to the whole frame's, interpolated to every pixel.
+
+    Robust SD (MAD) of vertical second differences, which cancel smooth lobes and backgrounds.
+    Tiles under min_ratio x the frame's noise get 1: around bright 20x beads and cells the ratio
+    reaches ~2 (first differences, clipped RMS: up to ~7, which hid real overlapping beads),
+    while a genuinely noisy region (noisy planted patches) is 3-40x.
+    """
+    img = np.asarray(image, dtype=np.float32)
+    d = img[2:]-2*img[1:-1]+img[:-2]
+    ny, nx = d.shape[0]//tile, d.shape[1]//tile
+    if ny < 2 or nx < 2:
+        return np.ones(img.shape, np.float32)
+    t = d[:ny*tile, :nx*tile].reshape(ny, tile, nx, tile).transpose(0, 2, 1, 3).reshape(ny, nx, -1)
+    mad = lambda a, axis=None: 1.4826*np.median(np.abs(a-np.median(a, axis=axis, keepdims=True)), axis=axis)
+    ratio = mad(t, axis=2)/max(float(mad(d[::2, ::2])), 1e-3)
+    ratio = np.where(ratio >= min_ratio, ratio, 1.)
+    full = zoom(ratio, (img.shape[0]/ny, img.shape[1]/nx), order=1)
+    out = np.ones(img.shape, np.float32)
+    h, w = min(full.shape[0], img.shape[0]), min(full.shape[1], img.shape[1])
+    out[:h, :w] = full[:h, :w]
+    return out
+
+
 def find_peaks(image, cfg):
-    """DoG maxima above the weak threshold, their DoG values, and the strong threshold."""
+    """DoG maxima above the weak threshold, their DoG values, and the strong threshold.
+
+    With local_noise_tile_px > 0 the DoG is divided by local_noise_ratio, so the threshold rises
+    where the image is noisier than the frame as a whole (and never drops). Without it, a noisy
+    region gives hundreds of noise peaks that chain into huge fit windows: on frames with noisy
+    planted beads, 427 s per frame and many false detections.
+    """
     hp = dog(image, cfg)
     sub = hp[::4, ::4]
     noise = 1.4826*np.median(np.abs(sub-np.median(sub)))
     strong = max(cfg.threshold, cfg.threshold_sigma*noise)
+    if cfg.local_noise_tile_px > 0:
+        hp = hp/local_noise_ratio(image, cfg.local_noise_tile_px, cfg.local_noise_min_ratio)
     mask = (hp == maximum_filter(hp, cfg.peak_window)) & (hp > cfg.weak_fraction*strong)
     yx = np.column_stack(np.nonzero(mask))
     return yx[:, ::-1].astype(float), hp[mask], strong
@@ -782,17 +818,48 @@ def _pairing_score(pairs, shared):
     return (len(pairs)+len(shared), -sum(p[2] for p in pairs+shared))
 
 
+def _local_split_fit(image, work, lo, hi, params, k, halves, cfg):
+    """Refit only the neighbourhood of lobe k, with k replaced by the two `halves`.
+
+    Gaussians within split_reach_sigmas x max_sigma of lobe k are refitted with the halves;
+    all others stay fixed and are subtracted from the data. The fit box is these lobes plus
+    fit_padding, inside the window. A split only changes its own neighbourhood, so refitting
+    the whole window (up to ~40 Gaussians) per attempt cost a third of the run time on 20x
+    frames and over half on noisy ones. `work` is a writable float copy of `image`.
+    Returns (indices refitted, fit_gaussians result) or None; the fit's Gaussians are the
+    refitted ones in that order, then the two halves.
+    """
+    free = np.flatnonzero(np.hypot(*(params[:, 1:3]-params[k, 1:3]).T) <= cfg.split_reach_sigmas*cfg.max_sigma)
+    free = free[free != k]
+    pts = np.vstack((params[free, 1:3], halves))
+    blo = np.maximum(np.floor(pts.min(axis=0)-cfg.fit_padding), lo).astype(int)
+    bhi = np.minimum(np.ceil(pts.max(axis=0)+cfg.fit_padding), hi).astype(int)
+    ys, xs = slice(blo[1], bhi[1]+1), slice(blo[0], bhi[0]+1)
+    yy, xx = np.mgrid[ys, xs].astype(float)
+    data = image[ys, xs].astype(float)
+    for j in np.setdiff1d(np.arange(len(params)), np.r_[free, k]):
+        a, px, py, s = params[j]
+        data = data-a*np.exp(-((xx-px)**2+(yy-py)**2)/(2*s*s))
+    work[ys, xs] = data
+    try:
+        fit = fit_gaussians(work, blo, bhi, pts, np.full(len(pts), cfg.center_bound), cfg)
+    finally:
+        work[ys, xs] = image[ys, xs]
+    return None if fit is None else (free, fit)
+
+
 def split_wide_lobes(image, lo, hi, params, usable, background, noise, pairs, shared, cfg, model, cov):
     """Try splitting too-wide lobes (two lobes merged into one Gaussian) and keep improvements.
 
     Two beads side by side can place two lobes ~5 px apart; they then merge into one wide
     Gaussian and force a crossed or shared-lobe pairing. A lobe wider than
     split_sigma_ratio x the median width of the other usable lobes in the window is
-    replaced by two Gaussians along its elongation axis and the window is refitted and
-    re-paired; the result is kept only if the pairing score improves by a clear margin.
+    replaced by two Gaussians along its elongation axis, its neighbourhood is refitted
+    (_local_split_fit) and the window re-paired; the result is kept only if the pairing
+    score improves by a clear margin. At most split_max_tries refits per window.
     Returns (params, usable, background, pairs, shared, n_splits, centre covariance).
     """
-    splits = 0
+    splits, tries, work = 0, 0, None
     for _ in range(2):
         widths = params[usable, 3]
         if usable.sum() < 3:
@@ -801,21 +868,38 @@ def split_wide_lobes(image, lo, hi, params, usable, background, noise, pairs, sh
                 if params[k, 3] > cfg.split_sigma_ratio*np.median(np.delete(widths, np.flatnonzero(np.flatnonzero(usable) == k)))]
         improved = False
         for k in sorted(wide, key=lambda k: -params[k, 3]):
+            if tries >= cfg.split_max_tries:
+                break
             halves = _split_positions(image, params, k, background)
             if halves is None:
                 continue
-            seeds = np.vstack((np.delete(params[:, 1:3], k, axis=0), halves))
-            fit = fit_gaussians(image, lo, hi, seeds, np.full(len(seeds), cfg.center_bound), cfg)
-            if fit is None:
+            tries += 1
+            if work is None:
+                work = np.array(image, dtype=float)
+            local = _local_split_fit(image, work, lo, hi, params, k, halves, cfg)
+            if local is None:
                 continue
-            p2, at_bound2, _, bg2, cov2 = fit
-            inside = ((p2[:, 1] >= 0) & (p2[:, 1] <= image.shape[1]-1) & (p2[:, 2] >= 0) & (p2[:, 2] <= image.shape[0]-1))
-            usable2 = ~at_bound2 & inside & (p2[:, 0] >= lobe_threshold(cfg)*noise)
+            free, (pf, at_bound_f, _, _, cov_f) = local
+            # new Gaussians: all but k in their order (the free ones refitted), then the two halves
+            keep = np.delete(np.arange(len(params)), k)
+            p2 = np.vstack((params[keep], pf[len(free):]))
+            usable2 = np.r_[usable[keep], np.zeros(2, bool)]
+            refit = np.r_[np.searchsorted(keep, free), len(keep), len(keep)+1]
+            p2[refit] = pf
+            inside = ((pf[:, 1] >= 0) & (pf[:, 1] <= image.shape[1]-1) & (pf[:, 2] >= 0) & (pf[:, 2] <= image.shape[0]-1))
+            usable2[refit] = ~at_bound_f & inside & (pf[:, 0] >= lobe_threshold(cfg)*noise)
+            # centre covariance: unchanged Gaussians keep theirs, refitted ones take the local fit's
+            # (covariances between the two groups are dropped)
+            ix = lambda idx: np.ravel([[2*i, 2*i+1] for i in idx]).astype(int)
+            cov2 = np.zeros((2*len(p2), 2*len(p2)))
+            same = np.setdiff1d(np.arange(len(keep)), refit)
+            cov2[np.ix_(ix(same), ix(same))] = cov[np.ix_(ix(keep[same]), ix(keep[same]))]
+            cov2[np.ix_(ix(refit), ix(refit))] = cov_f
             pairs2 = match_lobes(p2, usable2, cfg, model, noise)
             shared2 = shared_lobe_pairs(p2, usable2, pairs2, cfg, model, noise)
             old, new = _pairing_score(pairs, shared), _pairing_score(pairs2, shared2)
             if new[0] > old[0] or (new[0] == old[0] and new[1] > old[1]+cfg.split_min_gain):
-                params, usable, background, pairs, shared, cov = p2, usable2, bg2, pairs2, shared2, cov2
+                params, usable, pairs, shared, cov = p2, usable2, pairs2, shared2, cov2
                 splits += 1
                 improved = True
                 break
@@ -1034,12 +1118,12 @@ def fit_frame(task):
     return localize_image(read_frame(path, index), cfg, model, frame=index+1, seed=seed_image(path, index, cfg))
 
 
-FRAME_FIELDS = ['seed_sigma_frames', 'dog_small','dog_large', 'peak_window', 'threshold_sigma', 'weak_fraction', 'threshold',
+FRAME_FIELDS = ['seed_sigma_frames', 'dog_small','dog_large', 'peak_window', 'threshold_sigma', 'weak_fraction', 'threshold', 'local_noise_tile_px', 'local_noise_min_ratio',
                 'min_separation', 'max_separation', 'seed_max_ratio', 'max_ratio', 'sep_sd_px', 'sep_gate_px',
                 'ratio_log_sd', 'sigma_sd', 'pair_gate_cost', 'center_bound', 'min_sigma', 'max_sigma',
                 'fit_padding', 'max_group_gaussians', 'max_nfev', 'min_snr', 'ring_shadow_ratio',
                 'ring_shadow_px', 'shared_excess', 'shared_min_snr', 'roi_radius_px', 'split_sigma_ratio',
-                'split_min_gain', 'lsmr_min_params', 'fit_solver', 'noise_model', 'camera_file',
+                'split_min_gain', 'split_max_tries', 'split_reach_sigmas', 'lsmr_min_params', 'fit_solver', 'noise_model', 'camera_file',
                 'camera_offset_x', 'camera_offset_y', 'sep_sd_mode', 'sep_sd_floor_px', 'calibration_pruning',
                 'prune_slack_px', 'min_pair_snr', 'lobe_floor_snr']
 

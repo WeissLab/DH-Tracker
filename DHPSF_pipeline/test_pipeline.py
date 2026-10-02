@@ -6,7 +6,7 @@ from pipeline import (Config, C, NCOL, model_jac, localize_image, track, lap, Ca
                       axial_difference, recovery_requests, estimate_drift, reject_ring_shadows,
                       split_transient, deduplicate, reject_duplicate_lobes, fit_lateral_model, lateral_correction,
                       _lateral_design, _angle_crossing, jump_outliers, ghost_tracks, alternating_states,
-                      sandwiched_tracks)
+                      sandwiched_tracks, find_peaks)
 
 Z = np.linspace(-29, 29, 5801)
 MODEL = CalibrationModel(Z, np.linspace(5, 175, len(Z)), 16.5+(Z/12.)**2)  # sep 16.5..22.3 px
@@ -60,6 +60,32 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(stats.get('shared_lobe_pairs', 0), 1)
         for cx, cy, *_ in beads:
             self.assertTrue(found(rows, cx, cy, .6), (cx, cy))
+
+    def test_merged_lobes_of_two_beads_are_split(self):
+        # A lobe of each bead 5 px apart fit as one wide Gaussian; only the split recovers both beads.
+        sep_a, sep_b = (float(np.interp(a, MODEL.dense_a, MODEL.dense_sep)) for a in (0., 60.))
+        inner = np.array([70+sep_a/2, 85.])
+        d = np.array([np.cos(np.radians(60.)), np.sin(np.radians(60.))])*sep_b/2
+        beads = [(70., 80., 0., 150.), (*(inner+d), 60., 150.)]
+        rows, stats = localize_image(render(beads), Config(), MODEL)
+        self.assertGreaterEqual(stats.get('split_lobes', 0), 1)
+        self.assertEqual(len(rows), 2)
+        for cx, cy, *_ in beads:
+            self.assertTrue(found(rows, cx, cy), (cx, cy))
+        rows, _ = localize_image(render(beads), Config(split_sigma_ratio=100.), MODEL)
+        self.assertFalse(all(found(rows, cx, cy) for cx, cy, *_ in beads))
+
+    def test_noisy_patch_gives_no_detections_and_spares_beads(self):
+        beads = [(60.3, 60.7, 30., 120.), (140.2, 60.4, 100., 60.)]
+        image = render(beads, shape=(200, 200))
+        image[96:160, 96:160] += np.random.default_rng(3).normal(0, 16., (64, 64))   # 8x the camera noise, 2x2 tiles
+        rows, _ = localize_image(image, Config(), MODEL)
+        for cx, cy, *_ in beads:
+            self.assertTrue(found(rows, cx, cy), (cx, cy))
+        self.assertEqual(len(rows), 2)
+        # the patch's noise peaks (each a Gaussian to fit) are what the local threshold removes
+        in_patch = lambda cfg: int(np.sum([(96 <= x < 160) & (96 <= y < 160) for x, y in find_peaks(image, cfg)[0]]))
+        self.assertLess(in_patch(Config()), in_patch(Config(local_noise_tile_px=0))/5)
 
     def test_signal_outputs(self):
         amp, sigma, background = 150., 2.2, 104.
