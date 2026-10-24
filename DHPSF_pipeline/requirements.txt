@@ -10,5 +10,5 @@ scipy==1.17.1
 tifffile==2026.3.3
 networkx==3.6.1
 matplotlib==3.11.2
-pillow==12.3.0
+pillow==13.0.0
 torch==2.14.0+cpu
